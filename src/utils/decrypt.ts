@@ -79,35 +79,40 @@ export const decrypt = (
   keyOrSecret: string,
   maybe_iv?: string
 ) => {
-  let key;
-  let iv;
-  let contents;
+  // If maybe_iv is provided, use the original method (keeping for backward compatibility)
   if (maybe_iv) {
-    key = keyOrSecret;
-    iv = maybe_iv;
-    contents = encrypted;
-  } else {
-    const cypher = Buffer.from(encrypted, "base64");
-    const salt = cypher.subarray(8, 16);
-    const password = Buffer.concat([Buffer.from(keyOrSecret, "binary"), salt]);
-    const md5Hashes = [];
-    let digest = password;
-    for (let i = 0; i < 3; i++) {
-      md5Hashes[i] = crypto.createHash("md5").update(digest).digest();
-      digest = Buffer.concat([md5Hashes[i], password]);
+    let key = keyOrSecret;
+    let iv = maybe_iv;
+    let contents = encrypted;
+    
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    const decrypted =
+      decipher.update(
+        contents as any,
+        typeof contents === "string" ? "base64" : undefined,
+        "utf8"
+      ) + decipher.final("utf8");
+
+    return decrypted;
+  } 
+  // New method: direct AES decryption using the key from GitHub
+  else {
+    try {
+      // Create a key and IV from the provided key
+      const keyBytes = Buffer.from(keyOrSecret, 'utf8');
+      
+      // For AES-256-CBC, we need a 32-byte key and 16-byte IV
+      const key = crypto.createHash('md5').update(keyBytes).digest();
+      const iv = crypto.createHash('md5').update(key).update(keyBytes).digest().slice(0, 16);
+      
+      const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+      let decrypted = decipher.update(encrypted, 'base64', 'utf8');
+      decrypted += decipher.final('utf8');
+      
+      return decrypted;
+    } catch (error) {
+      console.error('Decryption error:', error);
+      throw new Error('Failed to decrypt data');
     }
-    key = Buffer.concat([md5Hashes[0], md5Hashes[1]]);
-    iv = md5Hashes[2];
-    contents = cypher.subarray(16);
   }
-
-  const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
-  const decrypted =
-    decipher.update(
-      contents as any,
-      typeof contents === "string" ? "base64" : undefined,
-      "utf8"
-    ) + decipher.final();
-
-  return decrypted;
 };
